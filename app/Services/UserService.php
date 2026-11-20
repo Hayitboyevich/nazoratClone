@@ -1,0 +1,232 @@
+<?php
+
+namespace App\Services;
+
+use App\Enums\UserRoleEnum;
+use App\Enums\UserStatusEnum;
+use App\Models\User;
+use GuzzleHttp\Client;
+use GuzzleHttp\Exception\BadResponseException;
+use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
+
+class UserService
+{
+
+    public function __construct(
+        protected Client $client,
+        protected User $user,
+        protected SertService $sertService,
+    )
+    {
+    }
+
+    public function getAllUsers($user, $roleId, $type = null)
+    {
+        switch ($roleId) {
+            case UserRoleEnum::BUYURTMACHI->value:
+            case UserRoleEnum::LOYIHA->value:
+            case UserRoleEnum::QURILISH->value:
+                return $user->employees()->whereNot('user_status_id', UserStatusEnum::RELEASED);
+
+            case UserRoleEnum::QURILISH_MONTAJ->value:
+                return User::query()->whereNot('user_status_id', UserStatusEnum::RELEASED)->whereHas('roles', function ($query) {
+                    $query->where('role_id', UserRoleEnum::INSPECTOR->value);
+                })->where('region_id', $user->region_id);
+
+            case UserRoleEnum::RESKADR->value:
+                return User::withTrashed()
+                    ->whereHas('roles', function ($query) use($type) {
+                    if ($type){
+                        $query->whereIn('role_id', [
+                            UserRoleEnum::ICHKI->value,
+                            UserRoleEnum::TEXNIK->value,
+                            UserRoleEnum::MUALLIF->value,
+                        ]);
+                    }else{
+                        $query->whereNotIn('role_id', [
+                            UserRoleEnum::BUYURTMACHI->value,
+                            UserRoleEnum::LOYIHA->value,
+                            UserRoleEnum::QURILISH->value,
+                            UserRoleEnum::ICHKI->value,
+                            UserRoleEnum::TEXNIK->value,
+                            UserRoleEnum::MUALLIF->value,
+                            UserRoleEnum::ARIZACHI->value,
+                        ]);
+                    }
+
+                });
+            case UserRoleEnum::REGISTRATOR->value:
+            case UserRoleEnum::REG_LAB->value:
+                return User::query()->whereHas('roles', function ($query) {
+                    $query->whereIn('role_id', [
+                        UserRoleEnum::BUYURTMACHI->value,
+                        UserRoleEnum::LOYIHA->value,
+                        UserRoleEnum::QURILISH->value,
+                        UserRoleEnum::ICHKI->value,
+                        UserRoleEnum::TEXNIK->value,
+                        UserRoleEnum::MUALLIF->value,
+                    ]);
+                })->where('region_id', $user->region_id);
+
+            case UserRoleEnum::REGKADR->value:
+                return User::withTrashed()->whereHas('roles', function ($query) {
+                    $query->whereNotIn('role_id', [
+                        UserRoleEnum::BUYURTMACHI->value,
+                        UserRoleEnum::LOYIHA->value,
+                        UserRoleEnum::QURILISH->value,
+                        UserRoleEnum::ICHKI->value,
+                        UserRoleEnum::TEXNIK->value,
+                        UserRoleEnum::MUALLIF->value,
+                        UserRoleEnum::RESPUBLIKA_KUZATUVCHI->value,
+                    ]);
+                })->where('region_id', $user->region_id);
+
+            case UserRoleEnum::SEOM_RES_KADR->value:
+                return User::withTrashed()->whereNot('user_status_id', UserStatusEnum::RELEASED)->whereHas('roles', function ($query) {
+                    $query->whereIn('role_id', [UserRoleEnum::SEOM_REG_KADR->value, UserRoleEnum::SEOM->value]);
+                });
+
+            case UserRoleEnum::SEOM_REG_KADR->value:
+                return User::withTrashed()
+                    ->whereNot('user_status_id', UserStatusEnum::RELEASED)
+                    ->where('region_id', $user->region_id)
+                    ->whereHas('roles', function ($query) {
+                        $query->where('role_id', UserRoleEnum::SEOM->value);
+                    });
+
+            case UserRoleEnum::FVV_RES_KADR->value:
+                return User::withTrashed()->whereNot('user_status_id', UserStatusEnum::RELEASED)->whereHas('roles', function ($query) {
+                    $query->whereIn('role_id', [UserRoleEnum::FVB_REG_KADR->value, UserRoleEnum::FVB->value]);
+                });
+
+            case UserRoleEnum::FVB_REG_KADR->value:
+                return User::withTrashed()
+                    ->whereNot('user_status_id', UserStatusEnum::RELEASED)
+                    ->where('region_id', $user->region_id)
+                    ->whereHas('roles', function ($query) {
+                        $query->where('role_id', UserRoleEnum::FVB->value);
+                    });
+
+
+            case UserRoleEnum::NOGIRONLAR_JAM_KADR->value:
+                return User::withTrashed()->whereNot('user_status_id', UserStatusEnum::RELEASED)->whereHas('roles', function ($query) {
+                    $query->where('role_id', UserRoleEnum::NOGIRONLAR_JAM->value);
+                });
+
+            case UserRoleEnum::NOGIRONLAR_ASSOT_KADR->value:
+                return User::withTrashed()->whereNot('user_status_id', UserStatusEnum::RELEASED)->whereHas('roles', function ($query) {
+                    $query->where('role_id', UserRoleEnum::NOGIRONLAR_ASSOT->value);
+                });
+            case UserRoleEnum::EKOLOGIYA_RES_KADR->value:
+                return User::withTrashed()->whereNot('user_status_id', UserStatusEnum::RELEASED)->whereHas('roles', function ($query) {
+                    $query->where('role_id', UserRoleEnum::EKOLOGIYA->value);
+                });
+            case UserRoleEnum::HTQ_KADR->value:
+                return User::withTrashed()->whereNot('user_status_id', UserStatusEnum::RELEASED)->whereHas('roles', function ($query) {
+                    $query->whereIn('role_id',[
+                        UserRoleEnum::KVARTIRA_INSPECTOR->value,
+                        UserRoleEnum::GASN_INSPECTOR->value,
+                        UserRoleEnum::SUV_INSPECTOR->value
+                    ]);
+                });
+
+            default:
+                return User::query()->whereRaw('1 = 0');
+        }
+    }
+
+    public function searchByUser($query, $filters)
+    {
+
+         return $query->when(isset($filters['search']), function ($q) use($filters){
+             $q->searchAll($filters['search']);
+            })
+            ->when(isset($filters['region_id']), function ($q) use($filters){
+                $q->where('region_id', $filters['region_id']);
+            })
+            ->when(isset($filters['district_id']), function ($q) use($filters) {
+                $q->where('district_id', $filters['district_id']);
+            })
+            ->when(isset($filters['status']), function ($q) use($filters){
+                $q->where('user_status_id', $filters['status']);
+            })
+            ->when(isset($filters['role_id']), function ($q) use($filters) {
+                $q->whereHas('roles', function ($q) use($filters){
+                    $q->where('role_id', $filters['role_id']);
+                });
+            });
+    }
+
+    public function getCountByUsers($user, $roleId, $type = null): array
+    {
+        $query = $this->getAllUsers($user, $roleId, $type)->getQuery();
+        return [
+            'all' => (clone $query)->count(),
+            'active' => (clone $query)->where('user_status_id', UserStatusEnum::ACTIVE)->count(),
+            'on_holiday' => (clone $query)->where('user_status_id', UserStatusEnum::ON_HOLIDAY)->count(),
+            'released' => (clone $query)->where('user_status_id', UserStatusEnum::RELEASED)->count(),
+        ];
+    }
+
+    public function getById($id)
+    {
+        return $this->user->query()->find($id);
+    }
+
+    public function getInfo(string $pinfl, string $birth_date)
+    {
+        try {
+            $resClient = $this->client->post(config('app.passport.url') . '?pinfl=' . $pinfl . '&birth_date=' . $birth_date,
+                [
+                    'headers' => [
+                        'Authorization' => 'Basic ' . base64_encode(config('app.passport.login') . ':' . config('app.passport.password')),
+                    ],
+                    'verify' => false,
+                ]);
+
+            $response = json_decode($resClient->getBody(), true);
+
+            return $response['result']['data']['data'][0];
+
+        } catch (BadResponseException $ex) {
+            throw new \Exception($ex->getMessage());
+        }
+    }
+
+    public function getCertificate($user, $roleId)
+    {
+        try {
+            $data = $this->sertService->sertGetUserInfo($user->pinfl);
+
+            if (!$data) {
+                throw new NotFoundHttpException('Sertifikat topilmadi');
+            }
+
+            $specIds = match ((int) $roleId) {
+                UserRoleEnum::MUALLIF->value => [1, 6, 7],
+                UserRoleEnum::TEXNIK->value => [2, 30],
+                UserRoleEnum::ICHKI->value => [8, 30],
+                UserRoleEnum::INSPECTOR->value => [4, 30],
+                default => null,
+            };
+
+            if ($specIds === null) {
+                return null;
+            }
+
+            return collect($data)
+                ->filter(fn ($item) => in_array(
+                    (int) data_get($item, 'spec_id'),
+                    $specIds,
+                    true
+                ))
+                ->values()
+                ->all();
+
+        } catch (\Throwable $exception) {
+            report($exception);
+
+            return null;
+        }
+    }
+}

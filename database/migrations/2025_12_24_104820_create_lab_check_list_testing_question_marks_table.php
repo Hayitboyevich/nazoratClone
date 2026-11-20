@@ -1,0 +1,34 @@
+<?php
+
+use Illuminate\Database\Migrations\Migration;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Support\Facades\Schema;
+
+return new class extends Migration
+{
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
+    {
+        Schema::create('lab_check_list_testing_question_marks', function (Blueprint $table) {
+            $table->id();
+            $table->string('mark');
+            $table->bigInteger('mark_number');
+            $table->unsignedBigInteger('lab_check_list_testing_question_id')->nullable();
+            $table->foreign('lab_check_list_testing_question_id')->references('id')->on('lab_check_list_testing_questions');
+            $table->unsignedBigInteger('mark_id')->nullable();
+            $table->integer('type')->comment('1 - otmetka, 2 - ko\'rsatkich');
+            $table->softDeletes();
+            $table->timestamps();
+        });
+    }
+
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
+    {
+        Schema::dropIfExists('lab_check_list_testing_question_marks');
+    }
+};

@@ -1,0 +1,276 @@
+<?php
+
+namespace App\Services;
+
+use App\Enums\UserStatusEnum;
+use App\Exceptions\NotFoundException;
+use App\Models\District;
+use App\Models\Region;
+use GuzzleHttp\Client;
+use Illuminate\Database\Eloquent\ModelNotFoundException;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Http;
+
+class EimzoService
+{
+//    private const URL = "http://10.100.1.191:8080";
+    private const URL = "http://imzo.shaffofqurilish.uz";
+//    private const URL = "http://172.18.0.43:9091";
+
+    protected InvoiceService $invoiceService;
+
+    public function __construct(InvoiceService $invoiceService, private Client $client)
+    {
+        $this->invoiceService = $invoiceService;
+    }
+
+
+    public function getChallenge(): null|string
+    {
+        $res = Http::timeout(10)->connectTimeout(5)->get(self::URL . "/frontend/challenge");
+
+        if ($res->status() != 200) {
+            return null;
+        }
+
+        $res = $res->object();
+
+        if ($res->status != 1) {
+            return null;
+        }
+
+        return $res->challenge;
+    }
+    private function sendingRequest($method, $url, $headers_with_body = null)
+    {
+        $res = match ($method) {
+            'GET' => $this->safeCall(fn() => $this->client->request($method, self::URL . $url)->getBody()->getContents()),
+            'POST' => $this->safeCall(fn() => $this->client->request($method, self::URL . $url, $headers_with_body)->getBody()->getContents())
+        };
+        return json_decode($res);
+    }
+
+    private function postHeadrs($pkcs7)
+    {
+//        $user_ip = empty($_SERVER['HTTP_X_REAL_IP']) ? $_SERVER['REMOTE_ADDR'] : $_SERVER['HTTP_X_REAL_IP'];
+        $user_ip = '127.0.0.1';
+//        $host = $_SERVER['HTTP_HOST'];
+        $host = 'imzo.shaffofqurilish.uz';
+        return [
+            'headers' => [
+                'Host' => $host,
+                'X-Real-IP' => $user_ip
+            ],
+            'body' => $pkcs7
+        ];
+    }
+
+    public function infoByPkcs7($pkcs7)
+    {
+        $headers_with_body = $this->postHeadrs($pkcs7);
+        return $this->sendingRequest(method: 'POST', url: '/backend/auth', headers_with_body: $headers_with_body);
+    }
+    public function signTimestamp($pkcs7)
+    {
+        $inn = null;
+        $result = $this->getPkcs7($pkcs7);
+        $this->checkStatus($result);
+
+        if (!empty($result->timestampedSignerList[0]->subjectName->{'1.2.860.3.16.1.1'})){
+            $inn = $result->timestampedSignerList[0]->subjectName->{'1.2.860.3.16.1.1'};
+        }
+
+        if (empty($result->pkcs7b64)) {
+            throw new \Exception('PKCS7 bo‘sh');
+        }
+
+        return [
+            'pkcs7b64' => $result->pkcs7b64,
+            'pin' => $result->timestampedSignerList[0]->subjectName->{'1.2.860.3.16.1.2'},
+            'inn' => $inn
+        ];
+
+    }
+
+    public function getPkcs7($pkcs7)
+    {
+        $headers_with_body = $this->postHeadrs($pkcs7);
+        return $this->sendingRequest(method: 'POST', url: '/frontend/timestamp/pkcs7', headers_with_body: $headers_with_body);
+    }
+
+    public function attached($pkcs7b64)
+    {
+        $headers_with_body = $this->postHeadrs($pkcs7b64);
+        return $this->sendingRequest(method: 'POST', url: '/backend/pkcs7/verify/attached', headers_with_body: $headers_with_body);
+    }
+
+
+
+    public function getUserInfo(string $pkcs7)
+    {
+        $user_ip = empty($_SERVER['HTTP_X_REAL_IP']) ? $_SERVER['REMOTE_ADDR'] : $_SERVER['HTTP_X_REAL_IP'];
+        $host = $_SERVER['HTTP_HOST'];
+        $headers = ['Host: ' . $host, 'X-Real-IP: ' . $user_ip];
+        $url = self::URL . "/backend/auth";
+//        $ch = curl_init();
+//
+//        curl_setopt($ch, CURLOPT_URL, $url);
+//        curl_setopt($ch, CURLOPT_POST, 1);
+//        curl_setopt($ch, CURLOPT_HTTPHEADER, $headers);
+//        curl_setopt($ch, CURLOPT_POSTFIELDS, $pkcs7);
+//        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+//        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+//        curl_setopt($ch, CURLOPT_TIMEOUT, 20);
+//        $response = curl_exec($ch);
+//        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+//        curl_close($ch);
+
+        $ch = curl_init($url);
+
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST => true,
+            CURLOPT_POSTFIELDS => $pkcs7,
+            CURLOPT_HTTPHEADER => [
+                'Content-Type: text/plain',
+                'X-Real-IP: 127.0.0.1',
+                'Expect:'
+            ],
+            CURLOPT_CONNECTTIMEOUT => 3,
+            CURLOPT_TIMEOUT => 20,
+        ]);
+
+        $response = curl_exec($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        curl_close($ch);
+        $res = json_decode($response, true);
+
+        if ($httpCode != 200) {
+            return null;
+        }
+//        $res = json_decode($response, true);
+        switch ($res['status']) {
+            case 1:
+                $userInfo = $res['subjectCertificateInfo']['subjectName'];
+                $region = Region::query()->where('name_uz', $userInfo['ST'])->first();
+                $inn = isset($userInfo['1.2.860.3.16.1.1']);
+                $person_data = [
+                    "name" => $userInfo['Name'],
+                    "surname" => $userInfo['SURNAME'],
+                    "pinfl" => $inn ? $userInfo['1.2.860.3.16.1.1'] : $userInfo['1.2.860.3.16.1.2'],
+                    "login" => $inn ? $userInfo['1.2.860.3.16.1.1'] : $userInfo['1.2.860.3.16.1.2'],
+                    "password" => Hash::make($userInfo['1.2.860.3.16.1.2']),
+                    "active" => UserStatusEnum::ACTIVE->value,
+                    "user_status_id" => UserStatusEnum::ACTIVE->value,
+                    "organization_name" => $userInfo["O"] ?? null,
+                    "region_id" => $region->id,
+                ];
+                if (isset($userInfo['1.2.860.3.16.1.2']) && !in_array(substr($userInfo['1.2.860.3.16.1.1'] ?? '', 0, 1), ['2', '3'])) {
+                    $district = District::query()->where('name_uz', $userInfo['L'])->first();
+                    if ($district){
+                        $person_data['district_id'] = $district->id;
+                    }
+                    $identification_number = $userInfo['1.2.860.3.16.1.2'];
+                } else {
+                    $address = $userInfo["L"];
+                    $person_data['address'] = $address;
+                    $identification_number = $userInfo['1.2.860.3.16.1.1'];
+                    $get_company_info = $this->invoiceService->getCompanyInfo($identification_number);
+                    if ($get_company_info) {
+                        $person_data['director_full_name'] = $get_company_info['director'];
+                    }
+
+                }
+                return ['person_data' => $person_data, 'identification_number' => $identification_number, 'pin' => $userInfo['1.2.860.3.16.1.2']];
+
+            case -1:
+                return "Sertifikat holatini tekshirib bo‘lmadi.";
+            case -5:
+                return "Imzo vaqti yaroqsiz.";
+            case -10:
+                return "ERI yaroqsiz.";
+            case -11:
+                return "Sertifikat haqiqiy emas.";
+            case -12:
+                return "Sertifikat imzolangan sanada haqiqiy emas.";
+            case -20:
+                return "ERI topilmadi yoki muddati o‘tgan. Qayta urinib ko'ring.";
+            default:
+                return "Noma'lum xato. Qayta urinib ko'ring.";
+        }
+
+
+    }
+    private function checkStatus($result)
+    {
+        if (!$result || !isset($result->status)) {
+            throw new \Exception('E-imzo servisedan noto‘g‘ri javob keldi');
+        }
+
+        if ((int)$result->status !== 1) {
+            throw new \Exception($result->message ?? 'E-imzo xatoligi');
+        }
+    }
+
+    protected function safeCall(callable $callable): mixed
+    {
+        try {
+            return $callable();
+        } catch (ModelNotFoundException $e) {
+            report($e);
+            throw new NotFoundException('Data not found');
+        } catch (\Throwable $exception) {
+            report($exception);
+            throw new \Exception($exception->getMessage());
+        }
+    }
+
+    public function checkDirector($data, $isYuridik)
+    {
+        $fullName = null;
+        if (empty($data['pin'])) {
+            throw new \Exception('Foydalanuvchi topilmadi');
+        }
+
+        if ($isYuridik) {
+            $director = $this->invoiceService->getCompanyInfo(
+                $data['inn']
+            );
+
+            if (is_string($director)) {
+                throw new \Exception('Kompaniya maʼlumoti xato: ' . $director);
+            }
+
+            if (!is_array($director)) {
+                throw new \Exception('Kompaniya maʼlumoti noto‘g‘ri formatda');
+            }
+
+            if (empty($director['directorPinfl']) || empty($director['director'])) {
+                throw new \Exception('Direktor maʼlumotlari to‘liq emas');
+            }
+
+            $directorPin = $director['directorPinfl'];
+            $fullName = $director['director'];
+            $inn = $director['tin'];
+
+
+            if (
+                empty($data['pin'])
+//                ||
+//                $data['pin'] != $directorPin
+            ) {
+                throw new \Exception('Direktor topilmadi yoki E-IMZO mos emas');
+            }
+        }else{
+            $directorPin = $data['pin'];
+            $inn = $data['pin'];
+        }
+
+        return [
+            'pin' => $directorPin,
+            'full_name' => $fullName,
+            'inn' => $inn,
+        ];
+    }
+}
