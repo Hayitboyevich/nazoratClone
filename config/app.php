@@ -59,15 +59,15 @@ return [
         'chat_id_tender' => env('TELEGRAM_CHAT_ID_TENDER', '-1003907381044')
     ],
 
-    'mygov' => [
-        'url' => env('MY_GOV_URL', 'https://oldmy.gov.uz/notice-beginning-construction-works-v4/rest-api'),
-        'url_mc' => env('MY_GOV_URL_MC', 'https://oldmy.gov.uz/construction-acceptance-permit-v1/rest-api/'),
-        'linear' => env('MY_GOV_LINEAR_URL', 'https://oldmy.gov.uz/registration-start-linear-object-v1/rest-api'),
-        'login' => env('MY_GOV_LOGIN', 'qurilish.sohasida.nazorat.inspeksiya.201122919'),
-        'login_mc' => env('MY_GOV_LOGIN_MC', 'qurilishvazirligi.200934644.k6xkKycCL88sCq53gL9s73HFwij'),
-        'password' => env('MY_GOV_PASS', 'Cx8]^]-Gk*mZK@.,S=c.g65>%[$TNRV75bYX<v+_'),
-        'password_mc' => env('MY_GOV_PASS_MC', 'Jsd23s!2VFV4SNMbHdsd57jr6RAyt9O4'),
-    ],
+//    'mygov' => [
+//        'url' => env('MY_GOV_URL', 'https://oldmy.gov.uz/notice-beginning-construction-works-v4/rest-api'),
+//        'url_mc' => env('MY_GOV_URL_MC', 'https://oldmy.gov.uz/construction-acceptance-permit-v1/rest-api/'),
+//        'linear' => env('MY_GOV_LINEAR_URL', 'https://oldmy.gov.uz/registration-start-linear-object-v1/rest-api'),
+//        'login' => env('MY_GOV_LOGIN', 'qurilish.sohasida.nazorat.inspeksiya.201122919'),
+//        'login_mc' => env('MY_GOV_LOGIN_MC', 'qurilishvazirligi.200934644.k6xkKycCL88sCq53gL9s73HFwij'),
+//        'password' => env('MY_GOV_PASS', 'Cx8]^]-Gk*mZK@.,S=c.g65>%[$TNRV75bYX<v+_'),
+//        'password_mc' => env('MY_GOV_PASS_MC', 'Jsd23s!2VFV4SNMbHdsd57jr6RAyt9O4'),
+//    ],
 
     'turarjoy' => [
         'url' => env('TURARJOY_URL', 'https://back-turarjoy.kommunal.uz/api/new-apartment-add'),
